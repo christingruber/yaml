@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<yamllinter name="yaml-linter-config">
+    <description>YAML linter configuration.</description>
+    <format>txt</format>
+    <includes>
+        <path>src/Resources/config/foo.yml</path>
+        <path>src/Resources/config/bar.yml</path>
+        <path>src/Resources/config/path/</path>
+    </includes>
+    <excludes>
+        <path>src/Resources/config/path/exclude.yml</path>
+    </excludes>
+</yamllinter>
