@@ -38,13 +38,15 @@ class LintCommand extends Command
     private $displayCorrectFiles;
     private $directoryIteratorProvider;
     private $isReadableProvider;
+    private $linterConfig;
 
-    public function __construct(string $name = null, callable $directoryIteratorProvider = null, callable $isReadableProvider = null)
+    public function __construct(string $name = null, callable $directoryIteratorProvider = null, callable $isReadableProvider = null, string $linterConfig = '.yamllinter.yml')
     {
         parent::__construct($name);
 
         $this->directoryIteratorProvider = $directoryIteratorProvider;
         $this->isReadableProvider = $isReadableProvider;
+        $this->linterConfig = $linterConfig;
     }
 
     /**
@@ -54,7 +56,8 @@ class LintCommand extends Command
     {
         $this
             ->setDescription('Lints a file and outputs encountered errors')
-            ->addArgument('filename', InputArgument::IS_ARRAY, 'A file, a directory or "-" for reading from STDIN')
+            ->addArgument('filename', InputArgument::IS_ARRAY, 'A file, a '.$this->linterConfig.' config, a directory or "-" for reading from STDIN')
+            ->addOption('exclude', null, InputOption::VALUE_REQUIRED, 'Files to exclude')
             ->addOption('format', null, InputOption::VALUE_REQUIRED, 'The output format', 'txt')
             ->addOption('parse-tags', null, InputOption::VALUE_NONE, 'Parse custom tags')
             ->setHelp(<<<EOF
@@ -65,6 +68,10 @@ You can validates YAML contents passed from STDIN:
 
   <info>cat filename | php %command.full_name% -</info>
 
+You can validate YAML contents passed from config file:
+
+  <info>php %command.full_name% .yamllinter.yml</info>
+
 You can also validate the syntax of a file:
 
   <info>php %command.full_name% filename</info>
@@ -73,6 +80,7 @@ Or of a whole directory:
 
   <info>php %command.full_name% dirname</info>
   <info>php %command.full_name% dirname --format=json</info>
+  <info>php %command.full_name% dirname --exclude=dirname/foo.yml</info>
 
 EOF
             )
@@ -83,16 +91,32 @@ EOF
     {
         $io = new SymfonyStyle($input, $output);
         $filenames = (array) $input->getArgument('filename');
+        $excludes = explode(' ', $input->getOption('exclude'));
         $this->format = $input->getOption('format');
         $this->displayCorrectFiles = $output->isVerbose();
         $flags = $input->getOption('parse-tags') ? Yaml::PARSE_CUSTOM_TAGS : 0;
+
+        if ([$this->linterConfig] === $filenames) {
+            if (!file_exists($filenames[0])) {
+                throw new RuntimeException(sprintf('Linter configuration file "%s" not found', $filenames[0]));
+            }
+
+            $config = $this->parseLinterConfig($filenames[0]);
+
+            $this->format = $config['format'] ?? $this->format;
+            $flags = $config['parse-tags'] ?? $flags;
+            $filenames = $config['includes'] ?? [];
+            $excludes = $config['excludes'] ?? $excludes;
+        }
 
         if (['-'] === $filenames) {
             return $this->display($io, [$this->validate(file_get_contents('php://stdin'), $flags)]);
         }
 
         if (!$filenames) {
-            throw new RuntimeException('Please provide a filename or pipe file content to STDIN.');
+            throw new RuntimeException(
+                'Please provide a filename, linter configuration or pipe file content to STDIN.'
+            );
         }
 
         $filesInfo = [];
@@ -102,7 +126,9 @@ EOF
             }
 
             foreach ($this->getFiles($filename) as $file) {
-                $filesInfo[] = $this->validate(file_get_contents($file), $flags, $file);
+                if (!in_array($file, $excludes)) {
+                    $filesInfo[] = $this->validate(file_get_contents($file), $flags, $file);
+                }
             }
         }
 
@@ -244,5 +270,17 @@ EOF
         }
 
         return $default($fileOrDirectory);
+    }
+
+    private function parseLinterConfig(string $config): array
+    {
+        $result = (new Parser())
+            ->parseFile($config);
+
+        if (!isset($result['yamllinter'])) {
+            throw new RuntimeException(sprintf('Invalid YAML linter config "%s".', $config));
+        }
+
+        return $result['yamllinter'];
     }
 }

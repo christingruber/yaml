@@ -1,0 +1,8 @@
+yamllinter:
+  format: txt
+  includes:
+    - src/Resources/config/foo.yml
+    - src/Resources/config/bar.yml
+    - src/Resources/config/path/
+  excludes:
+    - src/Resources/config/path/exclude.yml
